@@ -52,20 +52,30 @@ async function authorizeB2() {
 }
 
 // Function to upload file to B2
-async function uploadToB2(filePath, fileName, folder = '') {
+async function uploadToB2(filePath, fileName, folder = '', metadata = {}) {
   try {
-    // Get authorization
     const authResponse = await authorizeB2();
     const apiUrl = authResponse.apiInfo.storageApi.apiUrl;
 
-    // Prepare B2 file name with folder path
-    const b2FileName = folder 
-      ? `${folder.replace(/^\/+|\/+$/g, '')}/${fileName}` // Remove leading/trailing slashes
-      : fileName;
+    // Clean the file name
+    const cleanFileName = fileName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9.]/g, '-')
+      .replace(/-+/g, '-');
+
+    // Clean the folder path
+    const cleanFolder = folder 
+      ? folder.replace(/^\/+|\/+$/g, '').replace(/[^a-z0-9/-]/g, '-').replace(/-+/g, '-')
+      : '';
+
+    // Construct the full B2 file name
+    const b2FileName = cleanFolder 
+      ? `${cleanFolder}/${cleanFileName}`
+      : cleanFileName;
 
     console.log('Uploading to B2 with file name:', b2FileName);
 
-    // Get upload URL
     const uploadUrlResponse = await axios({
       method: 'post',
       url: `${apiUrl}/b2api/v3/b2_get_upload_url`,
@@ -77,13 +87,9 @@ async function uploadToB2(filePath, fileName, folder = '') {
       }
     });
 
-    console.log('Upload URL response:', uploadUrlResponse.data);
-
-    // Read file
     const fileBuffer = await fsPromises.readFile(filePath);
     const fileSize = fileBuffer.length;
 
-    // Upload file
     const uploadResponse = await axios({
       method: 'post',
       url: uploadUrlResponse.data.uploadUrl,
@@ -99,11 +105,10 @@ async function uploadToB2(filePath, fileName, folder = '') {
       maxBodyLength: Infinity
     });
 
-    console.log('Upload response:', uploadResponse.data);
-
     return {
       fileId: uploadResponse.data.fileId,
       fileName: uploadResponse.data.fileName,
+      name: metadata.displayName || fileName,
       fileUrl: `https://f005.backblazeb2.com/file/${process.env.B2_BUCKET_NAME}/${uploadResponse.data.fileName}`
     };
   } catch (error) {
@@ -121,7 +126,7 @@ async function listB2Folders() {
     // List files to get folders
     const response = await axios({
       method: 'post',
-      url: `${authResponse.apiUrl}/b2api/v2/b2_list_file_names`,
+      url: `${authResponse.apiUrl}/b2api/v3/b2_list_file_names`,
       headers: {
         Authorization: authResponse.authorizationToken
       },
@@ -156,7 +161,7 @@ async function listB2Folders() {
 
 app.post('/download', async (req, res) => {
   try {
-    const { fileUrl, folder } = req.body;
+    const { fileUrl, folder, fileName, displayName } = req.body;
     
     if (!fileUrl) {
       return res.status(400).json({ error: 'File URL is required' });
@@ -165,10 +170,11 @@ app.post('/download', async (req, res) => {
     console.log('Attempting to download:', fileUrl);
     console.log('Target folder:', folder || 'root');
     
-    const fileName = path.basename(fileUrl);
-    const filePath = path.join(tempDir, fileName);
+    const defaultFileName = path.basename(fileUrl);
+    const finalFileName = fileName || defaultFileName;
+    const tempFilePath = path.join(tempDir, finalFileName);
 
-    console.log('Saving to:', filePath);
+    console.log('Saving to:', tempFilePath);
 
     try {
       const response = await axios({
@@ -183,7 +189,7 @@ app.post('/download', async (req, res) => {
         throw new Error(`Failed to download file. Status: ${response.status}`);
       }
 
-      const writer = response.data.pipe(fs.createWriteStream(filePath));
+      const writer = response.data.pipe(fs.createWriteStream(tempFilePath));
       
       await new Promise((resolve, reject) => {
         writer.on('finish', resolve);
@@ -195,15 +201,21 @@ app.post('/download', async (req, res) => {
 
       console.log('File downloaded successfully, uploading to B2...');
 
-      // Upload to B2 with folder path
-      const b2Response = await uploadToB2(filePath, fileName, folder);
+      // Add metadata if display name is provided
+      const metadata = {};
+      if (displayName) {
+        metadata.displayName = displayName;
+      }
+
+      // Upload to B2 with folder path and metadata
+      const b2Response = await uploadToB2(tempFilePath, finalFileName, folder, metadata);
 
       // Clean up temp file
-      await fsPromises.unlink(filePath);
+      await fsPromises.unlink(tempFilePath);
 
       res.json({ 
         message: 'File processed successfully',
-        fileName,
+        fileName: finalFileName,
         b2FileId: b2Response.fileId,
         b2Url: b2Response.fileUrl
       });
@@ -263,7 +275,7 @@ app.get('/api/folders', async (req, res) => {
     // List files to get folders
     const response = await axios({
       method: 'post',
-      url: `${authResponse.apiUrl}/b2api/v2/b2_list_file_names`,
+      url: `${authResponse.apiUrl}/b2api/v3/b2_list_file_names`,
       headers: {
         Authorization: authResponse.authorizationToken
       },
@@ -302,51 +314,124 @@ app.get('/api/folders', async (req, res) => {
   }
 });
 
-// Add B2 folder listing endpoint
+// Add a retry utility function
+async function retryOperation(operation, maxRetries = 3, delay = 1000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+      
+      console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Increase delay for next attempt
+      delay *= 2;
+    }
+  }
+}
+
+// Update the b2/folders endpoint with retry logic
 app.get('/b2/folders', async (req, res) => {
   try {
-    const authData = await authorizeB2();
-    const apiUrl = authData.apiInfo.storageApi.apiUrl;
-    if (!apiUrl) {
-      throw new Error('Authorization failed: apiUrl is missing');
-    }
-    const response = await axios({
-      method: 'post',
-      url: `${apiUrl}/b2api/v3/b2_list_file_names`,
-      headers: {
-        Authorization: authData.authorizationToken
-      },
-      data: {
-        bucketId: process.env.B2_BUCKET_ID,
-        delimiter: '/',
-        prefix: ''
-      }
+    const { path } = req.query;
+    
+    // Remove leading slash if it exists and ensure trailing slash for non-empty paths
+    const cleanPath = path ? path.replace(/^\/+/, '') : '';
+    const prefix = cleanPath ? (cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`) : '';
+
+    console.log('Listing contents for path:', {
+      originalPath: path,
+      cleanPath: cleanPath,
+      prefix: prefix
     });
 
-    const uniqueFolders = new Set();
+    const listFiles = async () => {
+      const authData = await authorizeB2();
+      const apiUrl = authData.apiInfo.storageApi.apiUrl;
+
+      const response = await axios({
+        method: 'post',
+        url: `${apiUrl}/b2api/v3/b2_list_file_names`,
+        headers: {
+          Authorization: authData.authorizationToken
+        },
+        data: {
+          bucketId: process.env.B2_BUCKET_ID,
+          delimiter: '/',
+          prefix: prefix,
+          maxFileCount: 10000
+        },
+        timeout: 10000, // Add timeout
+        validateStatus: status => status === 200 // Only accept 200 status
+      });
+
+      return response;
+    };
+
+    // Use retry logic for the API call
+    const response = await retryOperation(listFiles);
+
+    console.log('B2 Response:', {
+      files: response.data.files.map(f => f.fileName),
+      commonPrefixes: response.data.commonPrefixes
+    });
+
+    const folders = new Set();
+    const files = [];
+
+    // Process files
     response.data.files.forEach(file => {
-      const pathParts = file.fileName.split('/');
-      if (pathParts.length > 1) {
-        const folderPath = pathParts.slice(0, -1).join('/');
-        uniqueFolders.add(folderPath);
+      const fileName = file.fileName;
+      
+      if (fileName.startsWith(prefix)) {
+        const relativePath = fileName.slice(prefix.length);
+        
+        if (!relativePath.includes('/')) {
+          files.push({
+            name: relativePath,
+            size: file.contentLength,
+            uploadTimestamp: file.uploadTimestamp,
+            fileId: file.fileId
+          });
+        } else {
+          const nextFolder = relativePath.split('/')[0];
+          if (nextFolder) {
+            folders.add(nextFolder);
+          }
+        }
       }
     });
 
+    // Process common prefixes
     if (response.data.commonPrefixes) {
       response.data.commonPrefixes.forEach(prefix => {
-        uniqueFolders.add(prefix.replace(/\/$/, ''));
+        const folderPath = prefix.replace(/\/$/, '');
+        const folderName = folderPath.split('/').pop();
+        if (folderName) {
+          folders.add(folderName);
+        }
       });
     }
 
-    const sortedFolders = Array.from(uniqueFolders).sort();
-    res.json({ folders: sortedFolders });
+    const sortedFolders = Array.from(folders).sort();
+    const sortedFiles = files.sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({
+      folders: sortedFolders,
+      files: sortedFiles
+    });
 
   } catch (error) {
     console.error('B2 folder list error:', error);
-    res.status(500).json({ error: 'Failed to list folders' });
+    res.status(500).json({ 
+      error: 'Failed to list folders and files',
+      details: error.message
+    });
   }
 });
 
+// Create folder by uploading a zero-byte file
 app.post('/b2/create-folder', async (req, res) => {
   try {
     const { folderName } = req.body;
@@ -354,23 +439,165 @@ app.post('/b2/create-folder', async (req, res) => {
       return res.status(400).json({ error: 'Folder name is required' });
     }
 
-    // Use a placeholder file to create the folder
-    const placeholderFileName = '.keep';
-    const filePath = path.join(tempDir, placeholderFileName);
+    // Clean the folder name
+    const cleanFolderName = folderName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9/]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^\/+|\/+$/g, '');
 
-    // Create a temporary placeholder file
-    await fsPromises.writeFile(filePath, '');
+    const authResponse = await authorizeB2();
+    const apiUrl = authResponse.apiInfo.storageApi.apiUrl;
 
-    // Upload the placeholder file to B2
-    const b2Response = await uploadToB2(filePath, placeholderFileName, folderName);
+    // Get upload URL
+    const uploadUrlResponse = await axios({
+      method: 'post',
+      url: `${apiUrl}/b2api/v3/b2_get_upload_url`,
+      headers: {
+        Authorization: authResponse.authorizationToken
+      },
+      data: {
+        bucketId: process.env.B2_BUCKET_ID
+      }
+    });
 
-    // Clean up the temporary file
-    await fsPromises.unlink(filePath);
+    // Upload empty file
+    await axios({
+      method: 'post',
+      url: uploadUrlResponse.data.uploadUrl,
+      headers: {
+        Authorization: uploadUrlResponse.data.authorizationToken,
+        'Content-Type': 'application/x-empty',
+        'Content-Length': '0',
+        'X-Bz-File-Name': encodeURIComponent(`${cleanFolderName}/.bzEmpty`),
+        'X-Bz-Content-Sha1': 'da39a3ee5e6b4b0d3255bfef95601890afd80709' // SHA1 of empty string
+      }
+    });
 
-    res.json({ message: 'Folder created successfully', b2Response });
+    res.json({ 
+      message: 'Folder created successfully',
+      folderName: cleanFolderName
+    });
+
   } catch (error) {
     console.error('Failed to create folder:', error);
-    res.status(500).json({ error: 'Failed to create folder', details: error.message });
+    res.status(500).json({ 
+      error: 'Failed to create folder', 
+      details: error.message 
+    });
+  }
+});
+
+// Delete a file
+app.delete('/b2/file/:fileId', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { fileName } = req.query;
+
+    if (!fileId || !fileName) {
+      return res.status(400).json({ 
+        error: 'Both fileId and fileName are required' 
+      });
+    }
+
+    const authResponse = await authorizeB2();
+    const apiUrl = authResponse.apiInfo.storageApi.apiUrl;
+
+    console.log('Deleting file:', { fileId, fileName });
+
+    // Get file info first to verify the file exists
+    const fileInfoResponse = await axios({
+      method: 'post',
+      url: `${apiUrl}/b2api/v3/b2_get_file_info`,
+      headers: {
+        Authorization: authResponse.authorizationToken
+      },
+      data: {
+        fileId: fileId
+      }
+    });
+
+    console.log('File info:', fileInfoResponse.data);
+
+    // Delete the file
+    await axios({
+      method: 'post',
+      url: `${apiUrl}/b2api/v3/b2_delete_file_version`,
+      headers: {
+        Authorization: authResponse.authorizationToken
+      },
+      data: {
+        fileId: fileId,
+        fileName: fileName
+      }
+    });
+
+    res.json({ 
+      message: 'File deleted successfully',
+      fileId,
+      fileName
+    });
+  } catch (error) {
+    console.error('Failed to delete file:', error.response?.data || error);
+    res.status(500).json({ 
+      error: 'Failed to delete file', 
+      details: error.response?.data?.message || error.message,
+      requestData: {
+        fileId: req.params.fileId,
+        fileName: req.query.fileName
+      }
+    });
+  }
+});
+
+// Delete a folder and its contents
+app.delete('/b2/folder/:folderPath(*)', async (req, res) => {
+  try {
+    const { folderPath } = req.params;
+    const cleanPath = folderPath.replace(/^\/+|\/+$/g, '');
+
+    const authResponse = await authorizeB2();
+    const apiUrl = authResponse.apiInfo.storageApi.apiUrl;
+
+    // List all files in the folder
+    const response = await axios({
+      method: 'post',
+      url: `${apiUrl}/b2api/v3/b2_list_file_names`,
+      headers: {
+        Authorization: authResponse.authorizationToken
+      },
+      data: {
+        bucketId: process.env.B2_BUCKET_ID,
+        prefix: `${cleanPath}/`,
+        maxFileCount: 10000
+      }
+    });
+
+    // Delete all files in the folder
+    const deletePromises = response.data.files.map(file => 
+      axios({
+        method: 'post',
+        url: `${apiUrl}/b2api/v3/b2_delete_file_version`,
+        headers: {
+          Authorization: authResponse.authorizationToken
+        },
+        data: {
+          fileId: file.fileId,
+          fileName: file.fileName
+        }
+      })
+    );
+
+    await Promise.all(deletePromises);
+
+    res.json({ message: 'Folder deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete folder:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete folder', 
+      details: error.message 
+    });
   }
 });
 

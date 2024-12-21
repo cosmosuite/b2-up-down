@@ -3,26 +3,30 @@ import axios from 'axios';
 import Modal from 'react-modal';
 import './FolderSelector.css';
 
-const API_BASE_URL = 'http://localhost:5005';
+const API_BASE_URL = process.env.REACT_APP_API_URL;
 
 Modal.setAppElement('#root'); // Set the app element for accessibility
 
-function FolderSelector({ onSelect, selectedFolder }) {
+function FolderSelector({ onSelect }) {
   const [folders, setFolders] = useState([]);
+  const [currentPath, setCurrentPath] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [uploadUrl, setUploadUrl] = useState('');
 
   useEffect(() => {
     fetchFolders();
-  }, []);
+  }, [currentPath]);
 
   const fetchFolders = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/b2/folders`);
-      setFolders(['root', ...response.data.folders]);
+      const response = await axios.get(`${API_BASE_URL}/b2/folders`, {
+        params: { path: currentPath }
+      });
+      setFolders(response.data.folders);
       setError(null);
     } catch (error) {
       console.error('Folder fetch error:', error);
@@ -33,15 +37,14 @@ function FolderSelector({ onSelect, selectedFolder }) {
   };
 
   const handleSelect = (folder) => {
-    onSelect(folder === 'root' ? '' : folder);
-    setIsModalOpen(false);
+    setCurrentPath(folder === 'root' ? '' : `${currentPath}/${folder}`);
   };
 
   const handleCreateFolder = async () => {
     if (newFolderName.trim() && !folders.includes(newFolderName)) {
       try {
         const response = await axios.post(`${API_BASE_URL}/b2/create-folder`, {
-          folderName: newFolderName
+          folderName: `${currentPath}/${newFolderName}`
         });
         console.log(response.data.message);
         setFolders([...folders, newFolderName]);
@@ -53,6 +56,23 @@ function FolderSelector({ onSelect, selectedFolder }) {
     }
   };
 
+  const handleUploadFile = async () => {
+    if (uploadUrl.trim()) {
+      try {
+        const response = await axios.post(`${API_BASE_URL}/download`, {
+          fileUrl: uploadUrl,
+          folder: currentPath
+        });
+        console.log(response.data.message);
+        setUploadUrl('');
+        alert('File uploaded successfully!');
+      } catch (error) {
+        console.error('Failed to upload file:', error);
+        alert('Failed to upload file. Please try again.');
+      }
+    }
+  };
+
   return (
     <div className="folder-selector">
       <button 
@@ -60,7 +80,7 @@ function FolderSelector({ onSelect, selectedFolder }) {
         className="folder-selector-trigger"
         onClick={() => setIsModalOpen(true)}
       >
-        <span>{selectedFolder || 'Select Folder'}</span>
+        <span>{currentPath || 'Select Folder'}</span>
         <span className="folder-icon">📁</span>
       </button>
 
@@ -71,7 +91,7 @@ function FolderSelector({ onSelect, selectedFolder }) {
         className="folder-modal"
         overlayClassName="folder-modal-overlay"
       >
-        <h2>Select a Folder</h2>
+        <h2>Current Path: {currentPath || 'root'}</h2>
         {loading ? (
           <div className="folder-item loading">Loading folders...</div>
         ) : error ? (
@@ -84,7 +104,7 @@ function FolderSelector({ onSelect, selectedFolder }) {
           folders.map(folder => (
             <div
               key={folder}
-              className={`folder-item ${selectedFolder === folder ? 'selected' : ''}`}
+              className="folder-item"
               onClick={() => handleSelect(folder)}
             >
               📁 {folder || 'root'}
@@ -99,6 +119,15 @@ function FolderSelector({ onSelect, selectedFolder }) {
             placeholder="New folder name"
           />
           <button onClick={handleCreateFolder}>Create Folder</button>
+        </div>
+        <div className="upload-file">
+          <input
+            type="text"
+            value={uploadUrl}
+            onChange={(e) => setUploadUrl(e.target.value)}
+            placeholder="File URL to upload"
+          />
+          <button onClick={handleUploadFile}>Upload File</button>
         </div>
         <button onClick={() => setIsModalOpen(false)}>Close</button>
       </Modal>
