@@ -1,0 +1,135 @@
+.folder-selector {
+  position: relative;
+  width: 100%;
+}
+
+.folder-selector-trigger {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 1rem;
+  background: white;
+  border: none;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.folder-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  z-index: 1000;
+}
+
+.folder-item {
+  padding: 0.5rem;
+  cursor: pointer;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.folder-item:hover {
+  background-color: #f5f5f5;
+}
+
+.folder-item.selected {
+  background-color: #e3f2fd;
+}
+
+.folder-item.loading,
+.folder-item.error {
+  color: #666;
+  cursor: default;
+}
+
+.arrow {
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.folder-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  margin-right: -50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 80%;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.folder-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+.folder-item {
+  padding: 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #ddd;
+}
+
+.folder-item:hover {
+  background-color: #f0f0f0;
+}
+
+.folder-item.selected {
+  background-color: #e0e0e0;
+}
+
+.folder-selector-trigger {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.folder-icon {
+  margin-left: 8px;
+}
+
+.new-folder {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.new-folder input {
+  flex: 1;
+  padding: 5px;
+  margin-right: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.new-folder button {
+  padding: 5px 10px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.new-folder button:hover {
+  background-color: #0056b3;
+} 
