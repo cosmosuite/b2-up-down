@@ -1,0 +1,14 @@
+{
+  "name": "b2-up-down",
+  "type": "fullstack",
+  "frontend": {
+    "root": "frontend",
+    "entry": "src/index.js",
+    "framework": "react"
+  },
+  "backend": {
+    "root": "backend",
+    "entry": "server.js",
+    "framework": "express"
+  }
+} 
