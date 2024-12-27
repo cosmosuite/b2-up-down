@@ -377,4 +377,51 @@ button:hover {
 
 .item-content {
   cursor: pointer;
+}
+
+.file-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.file-table th, .file-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.file-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+.back-to-root-button {
+  margin: 10px 0;
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.back-to-root-button:hover {
+  background-color: #0056b3;
+}
+
+.download-csv-button {
+  margin: 10px 0;
+  padding: 8px 16px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.download-csv-button:hover {
+  background-color: #218838;
 } 

@@ -1,28 +1,13 @@
 {
-  "name": "b2-up-down",
-  "version": "1.0.0",
-  "description": "Backblaze B2 File Manager",
-  "private": true,
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
-  "scripts": {
-    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\"",
-    "start:frontend": "cd frontend && npm start",
-    "start:backend": "cd backend && npm start",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
-    "build": "cd frontend && npm run build",
-    "test": "cd frontend && npm test"
-  },
-  "devDependencies": {
-    "concurrently": "^8.0.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/cosmosuite/b2-up-down.git"
+    "name": "b2-up-down",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+      "build:frontend": "cd frontend && npm run build",
+      "build:backend": "cd backend && npm run build",
+      "build": "concurrently \"npm run build:frontend\" \"npm run build:backend\""
+    },
+    "devDependencies": {
+      "concurrently": "^7.0.0"
+    }
   }
-} 
